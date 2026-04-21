@@ -25,7 +25,7 @@ def process_dataset(self, task_id: str):
         if task is None:
             return
 
-        if task.status != "NOT_STARTED":
+        if task.status in ("COMPLETED", "FAILED"):
             return
 
         # Transition to RUNNING
