@@ -1,0 +1,10 @@
+{
+  "dataset_id": "ds-all-invalid",
+  "records": [
+    {"id": 1, "timestamp": "not-a-date", "value": 10, "category": "A"},
+    {"id": 2, "timestamp": "2024-01-02T00:00:00Z", "value": "not-a-number", "category": "B"},
+    {"timestamp": "2024-01-03T00:00:00Z", "value": 30, "category": "C"},
+    {"id": 4, "value": 40, "category": "D"},
+    {"id": 5, "timestamp": "2024-01-05T00:00:00Z", "category": "E"}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "dataset_id": "ds-bad-syntax",
+  "records": [
+    {"id": 1, "timestamp": "2024-01-01T00:00:00Z", "value": 10, "category": "A"},
+    {"id": 2  "timestamp": "2024-01-02T00:00:00Z", "value": 20, "category": "B"}
+  ]
+}

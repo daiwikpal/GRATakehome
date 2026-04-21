@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Processing Pipeline</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #f8f9fa;
+      --surface-hover: #f1f3f5;
+      --border: #e0e3e8;
+      --text: #1a1a1a;
+      --text-muted: #6b7280;
+      --accent: #4f46e5;
+      --queued: #6b7280;
+      --processing: #d97706;
+      --completed: #059669;
+      --failed: #dc2626;
+      --radius: 10px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-stats {
+      display: flex;
+      gap: 18px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+    .header-stats .dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+
+    /* ── Upload Zone ── */
+    .upload-zone {
+      margin: 20px 32px;
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      text-align: center;
+      transition: border-color .2s, background .2s;
+      cursor: pointer;
+      position: relative;
+    }
+    .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: #eef2ff;
+    }
+    .upload-zone p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .upload-zone p strong { color: var(--accent); }
+    .upload-zone input { display: none; }
+
+    /* ── Pipeline ── */
+    .pipeline {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+      margin: 0 32px 32px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      min-height: 500px;
+    }
+    .column {
+      padding: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .column:last-child { border-right: none; }
+    .column-header {
+      padding: 14px 18px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+    }
+    .column-header .count {
+      background: var(--border);
+      color: var(--text-muted);
+      padding: 1px 8px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 500;
+    }
+    .column-body {
+      padding: 12px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .column-body:empty::after {
+      content: 'No tasks';
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      text-align: center;
+      margin-top: 40px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      transition: transform .15s, box-shadow .15s, opacity .3s;
+      animation: card-in .3s ease-out;
+    }
+    .card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+    .card.removing {
+      animation: card-out .3s ease-in forwards;
+    }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes card-out {
+      from { opacity: 1; transform: scale(1); }
+      to   { opacity: 0; transform: scale(0.95); }
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+    .card-id {
+      font-weight: 600;
+      font-size: 0.88rem;
+      word-break: break-all;
+    }
+    .card-filename {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .badge-not-started { background: #f3f4f6; color: var(--queued); }
+    .badge-in-progress { background: #fef3c7; color: var(--processing); }
+    .badge-completed   { background: #d1fae5; color: var(--completed); }
+    .badge-failed      { background: #fee2e2; color: var(--failed); }
+
+    .spinner {
+      width: 10px; height: 10px;
+      border: 2px solid #fde68a;
+      border-top-color: var(--processing);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Progress bar */
+    .progress-wrap {
+      background: #fef3c7;
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+      margin: 8px 0 4px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--processing);
+      border-radius: 4px;
+      transition: width .5s linear;
+    }
+    .timer {
+      font-size: 0.75rem;
+      color: var(--processing);
+      font-variant-numeric: tabular-nums;
+    }
+    .time-ago {
+      font-size: 0.73rem;
+      color: var(--text-muted);
+    }
+
+    /* Result section */
+    .result-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      margin-top: 6px;
+      user-select: none;
+    }
+    .result-toggle:hover { color: var(--text); }
+    .result-body {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height .25s ease;
+    }
+    .result-body.open { max-height: 300px; }
+    .result-inner {
+      padding-top: 10px;
+    }
+    .result-stat {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      padding: 2px 0;
+    }
+    .result-stat .label { color: var(--text-muted); }
+    .result-stat .value { font-weight: 600; }
+
+    /* Mini bar chart */
+    .bar-chart {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.73rem;
+    }
+    .bar-label {
+      width: 50px;
+      text-align: right;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .bar-track {
+      flex: 1;
+      height: 10px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width .4s ease;
+    }
+    .bar-count {
+      width: 28px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Error */
+    .error-msg {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: var(--failed);
+      background: #fef2f2;
+      border-radius: 5px;
+      padding: 8px;
+      word-break: break-word;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    /* Delete */
+    .delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+      line-height: 1;
+      transition: color .15s, background .15s;
+    }
+    .delete-btn:hover { color: var(--failed); background: #fee2e2; }
+
+    .confirm-strip {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+    }
+    .confirm-strip span { color: var(--text-muted); }
+    .confirm-yes {
+      background: var(--failed);
+      color: #fff;
+      border: none;
+      padding: 4px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .confirm-no {
+      background: var(--border);
+      color: var(--text);
+      border: none;
+      padding: 4px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 800px) {
+      .pipeline { grid-template-columns: 1fr; }
+      .column { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Data Processing Pipeline</h1>
+    <div class="header-stats" id="header-stats"></div>
+  </div>
+
+  <div class="upload-zone" id="upload-zone">
+    <p><strong>Drop JSON files here</strong> or click to browse</p>
+    <input type="file" id="file-input" accept=".json" multiple />
+  </div>
+
+  <div class="pipeline">
+    <div class="column">
+      <div class="column-header">
+        <span style="color:var(--queued)">●</span> Queued
+        <span class="count" id="count-queued">0</span>
+      </div>
+      <div class="column-body" id="col-queued"></div>
+    </div>
+    <div class="column">
+      <div class="column-header">
+        <span style="color:var(--processing)">●</span> Processing
+        <span class="count" id="count-processing">0</span>
+      </div>
+      <div class="column-body" id="col-processing"></div>
+    </div>
+    <div class="column">
+      <div class="column-header">
+        <span style="color:var(--completed)">●</span> Completed
+        <span class="count" id="count-completed">0</span>
+      </div>
+      <div class="column-body" id="col-completed"></div>
+    </div>
+  </div>
+
+<script>
+const API = 'http://localhost:8000/api';
+const EXPECTED_DURATION = 15;
+
+const taskCache = {};     // task_id -> { ...taskData }
+const resultCache = {};   // task_id -> { ...resultData }
+const expandedCards = {};  // task_id -> bool
+const confirmDelete = {};  // task_id -> bool
+const BAR_COLORS = ['#6c5ce7','#00b894','#f0a500','#e74c3c','#0984e3','#fd79a8','#00cec9','#e17055'];
+
+// ── Upload ──
+const zone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+
+zone.addEventListener('click', () => fileInput.click());
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  [...e.dataTransfer.files].forEach(f => uploadFile(f));
+});
+fileInput.addEventListener('change', () => {
+  [...fileInput.files].forEach(f => uploadFile(f));
+  fileInput.value = '';
+});
+
+async function uploadFile(file) {
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch(`${API}/tasks`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(`Upload failed: ${err.detail || res.statusText}`);
+      return;
+    }
+    poll(); // immediate refresh
+  } catch (e) {
+    alert(`Upload error: ${e.message}`);
+  }
+}
+
+// ── Polling ──
+async function poll() {
+  try {
+    const res = await fetch(`${API}/tasks?limit=200`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const tasks = data.items;
+
+    // Fetch results for newly completed tasks
+    const resultFetches = tasks
+      .filter(t => t.status === 'COMPLETED' && !resultCache[t.task_id])
+      .map(async t => {
+        try {
+          const r = await fetch(`${API}/tasks/${t.task_id}/result`);
+          if (r.ok) resultCache[t.task_id] = await r.json();
+        } catch {}
+      });
+    await Promise.all(resultFetches);
+
+    // Update cache
+    const activeIds = new Set(tasks.map(t => t.task_id));
+    for (const id of Object.keys(taskCache)) {
+      if (!activeIds.has(id)) delete taskCache[id];
+    }
+    tasks.forEach(t => taskCache[t.task_id] = t);
+
+    render(tasks);
+  } catch {}
+}
+
+// ── Render ──
+function render(tasks) {
+  const queued = tasks.filter(t => t.status === 'NOT_STARTED');
+  const processing = tasks.filter(t => t.status === 'IN_PROGRESS');
+  const completed = tasks.filter(t => t.status === 'COMPLETED' || t.status === 'FAILED');
+
+  document.getElementById('count-queued').textContent = queued.length;
+  document.getElementById('count-processing').textContent = processing.length;
+  document.getElementById('count-completed').textContent = completed.length;
+
+  // Header stats
+  document.getElementById('header-stats').innerHTML =
+    `<span><span class="dot" style="background:var(--queued)"></span>${queued.length} queued</span>` +
+    `<span><span class="dot" style="background:var(--processing)"></span>${processing.length} processing</span>` +
+    `<span><span class="dot" style="background:var(--completed)"></span>${completed.filter(t=>t.status==='COMPLETED').length} done</span>` +
+    `<span><span class="dot" style="background:var(--failed)"></span>${completed.filter(t=>t.status==='FAILED').length} failed</span>`;
+
+  renderColumn('col-queued', queued);
+  renderColumn('col-processing', processing);
+  renderColumn('col-completed', completed);
+}
+
+function renderColumn(containerId, tasks) {
+  const container = document.getElementById(containerId);
+  const existingIds = new Set([...container.children].map(el => el.dataset.id));
+  const newIds = new Set(tasks.map(t => t.task_id));
+
+  // Remove cards no longer in this column
+  [...container.children].forEach(el => {
+    if (!newIds.has(el.dataset.id)) {
+      el.classList.add('removing');
+      setTimeout(() => el.remove(), 300);
+    }
+  });
+
+  tasks.forEach(task => {
+    let card = container.querySelector(`[data-id="${task.task_id}"]`);
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.id = task.task_id;
+      container.appendChild(card);
+    }
+    card.innerHTML = buildCardHTML(task);
+  });
+}
+
+function buildCardHTML(task) {
+  const id = task.task_id;
+  let html = `<div class="card-top">`;
+  html += `<div><div class="card-id">${esc(task.dataset_id)}</div>`;
+  html += `<div class="card-filename">${esc(task.filename)}</div></div>`;
+  html += `<div style="display:flex;align-items:center;gap:6px">`;
+  html += badgeHTML(task.status);
+
+  if (task.status === 'COMPLETED' || task.status === 'FAILED') {
+    if (confirmDelete[id]) {
+      // handled below
+    } else {
+      html += `<button class="delete-btn" onclick="event.stopPropagation();confirmDelete['${id}']=true;poll();" title="Delete">&times;</button>`;
+    }
+  }
+  html += `</div></div>`;
+
+  // Status-specific content
+  if (task.status === 'NOT_STARTED') {
+    html += `<div class="time-ago">${timeAgo(task.created_at)}</div>`;
+  }
+
+  if (task.status === 'IN_PROGRESS') {
+    const elapsed = Math.floor((Date.now() - new Date(task.started_at).getTime()) / 1000);
+    html += `<div class="time-ago" style="margin-top:6px">Processing for ${elapsed}s</div>`;
+  }
+
+  if (task.status === 'COMPLETED') {
+    const result = resultCache[id];
+    if (result) {
+      html += `<div class="result-stat"><span class="label">Records</span><span class="value">${result.record_count}</span></div>`;
+      html += `<div class="result-stat"><span class="label">Invalid</span><span class="value">${result.invalid_records}</span></div>`;
+      html += `<div class="result-stat"><span class="label">Avg value</span><span class="value">${result.average_value != null ? result.average_value.toFixed(2) : '—'}</span></div>`;
+
+      const isOpen = expandedCards[id];
+      html += `<div class="result-toggle" onclick="event.stopPropagation();expandedCards['${id}']=!expandedCards['${id}'];poll();">`;
+      html += `${isOpen ? '▾' : '▸'} Category breakdown</div>`;
+      html += `<div class="result-body ${isOpen ? 'open' : ''}"><div class="result-inner">`;
+      html += categoryChart(result.category_summary);
+      html += `</div></div>`;
+    }
+  }
+
+  if (task.status === 'FAILED') {
+    html += `<div class="error-msg">${esc(task.error_message || 'Unknown error')}</div>`;
+  }
+
+  // Delete confirmation
+  if (confirmDelete[id]) {
+    html += `<div class="confirm-strip">`;
+    html += `<span>Delete?</span>`;
+    html += `<button class="confirm-yes" onclick="event.stopPropagation();doDelete('${id}')">Yes, delete</button>`;
+    html += `<button class="confirm-no" onclick="event.stopPropagation();delete confirmDelete['${id}'];poll();">Cancel</button>`;
+    html += `</div>`;
+  }
+
+  return html;
+}
+
+function badgeHTML(status) {
+  const map = {
+    'NOT_STARTED': ['badge-not-started', 'Queued'],
+    'IN_PROGRESS': ['badge-in-progress', '<span class="spinner"></span> Processing'],
+    'COMPLETED': ['badge-completed', 'Done'],
+    'FAILED': ['badge-failed', 'Failed'],
+  };
+  const [cls, label] = map[status] || ['', status];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function categoryChart(summary) {
+  if (!summary || !Object.keys(summary).length) return '<span class="label" style="font-size:.75rem">No categories</span>';
+  const entries = Object.entries(summary).sort((a,b) => b[1] - a[1]);
+  const max = Math.max(...entries.map(e => e[1]));
+  let html = '<div class="bar-chart">';
+  entries.forEach(([cat, count], i) => {
+    const color = BAR_COLORS[i % BAR_COLORS.length];
+    const width = max > 0 ? (count / max * 100) : 0;
+    html += `<div class="bar-row">`;
+    html += `<span class="bar-label" title="${esc(cat)}">${esc(cat)}</span>`;
+    html += `<div class="bar-track"><div class="bar-fill" style="width:${width}%;background:${color}"></div></div>`;
+    html += `<span class="bar-count">${count}</span>`;
+    html += `</div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+// ── Delete ──
+async function doDelete(id) {
+  try {
+    await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+    delete confirmDelete[id];
+    delete taskCache[id];
+    delete resultCache[id];
+    poll();
+  } catch (e) {
+    alert(`Delete failed: ${e.message}`);
+  }
+}
+
+// ── Helpers ──
+function timeAgo(iso) {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+// ── Start polling ──
+poll();
+setInterval(poll, 500);
+</script>
+</body>
+</html>

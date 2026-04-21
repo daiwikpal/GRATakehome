@@ -1,0 +1,10 @@
+{
+  "dataset_id": "ds-sample-001",
+  "records": [
+    {"id": 1, "timestamp": "2024-06-01T10:00:00Z", "value": 10, "category": "A"},
+    {"id": 2, "timestamp": "2024-06-02T11:30:00Z", "value": 20, "category": "B"},
+    {"id": 3, "timestamp": "2024-06-03T09:15:00Z", "value": 60, "category": "A"},
+    {"id": 4, "timestamp": "bad-timestamp", "value": 40, "category": "C"},
+    {"timestamp": "2024-06-05T14:00:00Z", "value": 25, "category": "B"}
+  ]
+}
