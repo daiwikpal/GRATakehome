@@ -17,7 +17,7 @@ class Task(Base):
     )
     dataset_id: Mapped[str] = mapped_column(String(255), nullable=False)
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_STARTED", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

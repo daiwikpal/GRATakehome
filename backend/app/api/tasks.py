@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.models import ProcessedResult, RawDataset, Task
+from app.workers.processing import process_dataset
 from app.schemas import (
     DatasetPayload,
     TaskCreate,
@@ -59,7 +60,7 @@ async def upload_dataset(
         task_id=task_id,
         dataset_id=payload.dataset_id,
         filename=file.filename or "upload.json",
-        status="PENDING",
+        status="NOT_STARTED",
     )
     db.add(task)
 
@@ -72,12 +73,14 @@ async def upload_dataset(
     db.commit()
     db.refresh(task)
 
+    process_dataset.delay(str(task_id))
+
     return task
 
 
 @router.get("", response_model=TaskListResponse)
 def list_tasks(
-    status_filter: Optional[Literal["PENDING", "RUNNING", "COMPLETED", "FAILED"]] = Query(
+    status_filter: Optional[Literal["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "FAILED"]] = Query(
         default=None, alias="status"
     ),
     limit: int = Query(default=50, ge=1, le=200),
@@ -130,7 +133,7 @@ def delete_task(task_id: uuid.UUID, db: Session = Depends(get_db)):
     task = db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
-    if task.status == "RUNNING":
+    if task.status == "IN_PROGRESS":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete a RUNNING task.",
