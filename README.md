@@ -128,25 +128,25 @@ A request flows like this:
 
 | Technology | Why |
 |---|---|
-| **FastAPI** | Native async support, automatic OpenAPI spec generation, and first-class Pydantic integration for request validation. Endpoints return in milliseconds because they never perform processing — they only validate, persist, and enqueue. |
-| **Celery** | Broker-agnostic (RabbitMQ today, SQS tomorrow with a one-line config change), mature retry/backoff/failure handling, and widely used in Python backend infrastructure. |
+| **FastAPI** | Native async support, automatic OpenAPI spec generation, and first-class Pydantic integration for request validation. Endpoints return in milliseconds because they never perform processing since they only validate, persist, and enqueue. |
+| **Celery** | Broker-agnostic, mature retry/backoff/failure handling, and widely used in Python backend infrastructure. |
 | **RabbitMQ** | Purpose-built AMQP broker with durable queues by default. Messages survive broker restarts. The built-in management UI (port 15672) makes queue depth and consumer status visible during demos. Chosen over Redis because Redis's list-based queuing has weaker durability guarantees on abrupt termination. |
-| **PostgreSQL** | Strong transactional guarantees for task state transitions, JSONB support for flexible result storage, and production-equivalent behavior locally. Task state is the source of truth — not the queue, not in-memory state. |
+| **PostgreSQL** | Strong transactional guarantees for task state transitions, JSONB support for flexible result storage, and production-equivalent behavior locally. Task state is the source of truth in the DB |
 | **SQLAlchemy 2.0 + Alembic** | Type-safe ORM queries with schema migrations, so the database schema is versioned and reproducible. |
-| **Pydantic v2** | Validates every uploaded dataset *before* anything is written to disk or enqueued. Malformed input gets a 422 immediately — garbage never enters the queue. |
-| **Docker Compose** | One-command startup (`docker compose up`) with healthcheck-gated dependencies. Isomorphic with ECS task definitions in production. |
+| **Pydantic v2** | Validates every uploaded dataset *before* anything is written to disk or enqueued. Malformed input gets a 422 immediately, so garbage never enters the queue. |
+| **Docker Compose** | One-command startup (`docker compose up`) with healthcheck-gated dependencies. |
 
 ### Alternatives Considered
 
-**RabbitMQ over Redis as the broker.** Redis works as a Celery broker and is simpler to run. However, RabbitMQ is purpose-built for message brokering (AMQP protocol) rather than a list data structure repurposed as a queue. Message durability is stronger out of the box — RabbitMQ persists messages to disk by default, while Redis requires explicit AOF configuration with weaker guarantees on abrupt termination. The RabbitMQ management UI (port 15672) also makes queue behavior visible during demos.
+**RabbitMQ over Redis as the broker.** Redis works as a Celery broker and is simpler to run. However, RabbitMQ is purpose-built for message brokering rather than a list data structure repurposed as a queue. Message durability is stronger out of the box since RabbitMQ persists messages to disk by default, while Redis requires explicit configuration with weaker guarantees on abrupt termination. In addition, the RabbitMQ management UI also makes queue behavior visible during demos.
 
-**AWS Lambda + SQS + DynamoDB.** Cloud-native and arguably more scalable, but cannot be run locally by a reviewer without LocalStack or an AWS account. The take-home's explicit requirement for `docker compose up` instructions conflicts with cloud-only deployment. The current architecture maps cleanly onto this stack anyway. 
+**AWS Lambda + SQS + DynamoDB.** Cloud-native and arguably more scalable, but cannot be run locally by a reviewer without LocalStack or an AWS account. The take-home's explicit requirement for `docker compose up` instructions conflicts with cloud-only deployment. The current architecture can map cleanly onto this stack. 
 
 **FastAPI `BackgroundTasks` / `asyncio.create_task`.** These run in the same process as the API. A worker crash takes the API with it, state lives in memory and is lost on restart, and there's no horizontal scalability. This fails the consistency-under-failure requirement.
 
 ### API Design 
 
-The upload endpoint returns **202 Accepted** rather than 200 OK because the work has not been completed at response time — this is the semantically correct HTTP status. The response body includes the `task_id` and a `NOT_STARTED` status so the client can immediately begin polling. The endpoint does three things atomically: validate the payload, persist the task + raw dataset to Postgres, and publish a message to RabbitMQ. Total wall time is < 100 ms regardless of how many tasks are already in flight, because no processing happens in the API process.
+The upload endpoint returns **202 Accepted** rather than 200 OK because the work has not been completed at response time. The response body includes the `task_id` and a `NOT_STARTED` status so the client can immediately begin polling. The endpoint does three things atomically: validate the payload, persist the task + raw dataset to Postgres, and publish a message to RabbitMQ. Total wall time is < 100 ms regardless of how many tasks are already in flight, because no processing happens in the API process.
 
 The result is exposed as a separate sub-resource (`GET /api/tasks/{task_id}/result`) so clients that only need status don't pay for the full result payload, and a **409 Conflict** response for "not yet ready" is more honest than returning a partial object with null fields.
 
