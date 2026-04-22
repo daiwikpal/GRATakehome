@@ -13,7 +13,7 @@ A Python-based web system that ingests JSON datasets, processes them asynchronou
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/daiwikpal/GRATakehome.git
 cd GRATakehome
 ```
 
