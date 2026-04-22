@@ -140,7 +140,7 @@ A request flows like this:
 
 **RabbitMQ over Redis as the broker.** Redis works as a Celery broker and is simpler to run. However, RabbitMQ is purpose-built for message brokering (AMQP protocol) rather than a list data structure repurposed as a queue. Message durability is stronger out of the box — RabbitMQ persists messages to disk by default, while Redis requires explicit AOF configuration with weaker guarantees on abrupt termination. The RabbitMQ management UI (port 15672) also makes queue behavior visible during demos.
 
-**AWS Lambda + SQS + DynamoDB.** Cloud-native and arguably more scalable, but cannot be run locally by a reviewer without LocalStack or an AWS account. The take-home's explicit requirement for `docker compose up` instructions conflicts with cloud-only deployment. The current architecture maps cleanly onto this stack anyway (see Cloud Infrastructure section).
+**AWS Lambda + SQS + DynamoDB.** Cloud-native and arguably more scalable, but cannot be run locally by a reviewer without LocalStack or an AWS account. The take-home's explicit requirement for `docker compose up` instructions conflicts with cloud-only deployment. The current architecture maps cleanly onto this stack anyway. 
 
 **FastAPI `BackgroundTasks` / `asyncio.create_task`.** These run in the same process as the API. A worker crash takes the API with it, state lives in memory and is lost on restart, and there's no horizontal scalability. This fails the consistency-under-failure requirement.
 
@@ -156,47 +156,17 @@ The result is exposed as a separate sub-resource (`GET /api/tasks/{task_id}/resu
 
 **Worker crash during processing.** Celery tasks are configured with `acks_late=True`, meaning a message is not removed from RabbitMQ until the worker finishes and explicitly acknowledges it. If a worker dies mid-task, RabbitMQ detects the dropped connection and requeues the message for another worker to pick up. No data is lost.
 
-**Retry policy.** Tasks auto-retry up to 3 times with exponential backoff and jitter for transient failures (I/O errors, database connection drops). Programming errors (TypeError, KeyError) are *not* retried — those are bugs, and retrying a bug just produces three bugs. They fail immediately with a captured traceback written to `error_message`.
+**Retry policy.** Tasks auto-retry up to 3 times with exponential backoff and jitter for transient failures (I/O errors, database connection drops). Programming errors (TypeError, KeyError) are *not* retried. Programming errors are bugs, and retrying a bug just produces three bugs. They fail immediately with a captured traceback written to `error_message`.
 
 **Invalid/edge-case JSON uploads.** Every upload is fully parsed and validated by Pydantic before any state is created. Invalid JSON → 422. Valid JSON but wrong schema → 422. File too large → 413. The queue never sees bad data.
 
-**Concurrent uploads.** The upload endpoint is effectively non-blocking. Writing a DB row and publishing an AMQP message both take < 10 ms. A burst of 10+ simultaneous uploads is handled without endpoint-level queuing or locking — Postgres handles concurrent INSERTs natively, and RabbitMQ is built for exactly this.
+**Concurrent uploads.** The upload endpoint is effectively non-blocking. Writing a DB row and publishing an AMQP message both take < 10 ms. A burst of 10+ simultaneous uploads is handled without endpoint-level queuing or locking. In addition, Postgres handles concurrent INSERTs natively, and RabbitMQ is built for exactly this.
 
 **File collision prevention.** Uploaded files are keyed by a server-generated UUID (`task_id`), not the original filename. Two uploads with identical filenames produce two distinct task records. The original filename is stored for display only and is never interpolated into a file system path.
 
----
 
-## Cloud Infrastructure and Scaling
+## Next Steps
 
-The local Docker Compose setup maps directly onto AWS managed services with minimal code changes:
-
-| Local Component | AWS Equivalent | Code Change |
-|---|---|---|
-| `api` container | ECS Fargate behind an ALB | None (stateless) |
-| `worker` containers | ECS Fargate tasks (or Lambda + SQS) | None |
-| `rabbitmq` container | Amazon MQ (managed RabbitMQ) | Connection string only |
-| `db` container | RDS PostgreSQL | Connection string only |
-| Raw dataset storage | S3 bucket | Swap local storage for S3 client |
-| `docker-compose.yml` | Terraform / CDK | — |
-| Container images | ECR | — |
-| Logs | CloudWatch Logs | — |
-| Secrets | AWS Secrets Manager | Env var injection |
-
-### How it would scale
-
-The system scales on three independent axes:
-
-- **API throughput** — Add more `api` containers behind a load balancer. The API is stateless; scaling is trivial up to the Postgres connection limit (managed with PgBouncer).
-- **Processing throughput** — Add more Celery workers. Each additional container increases throughput linearly. Locally: `docker compose up --scale worker=N`. In AWS: adjust the ECS service desired count.
-- **Queue durability** — RabbitMQ can be clustered, or replaced with Amazon MQ for managed high availability with no code changes (Celery's broker abstraction via Kombu handles the swap).
-
-The first bottleneck at scale would be Postgres connections, solved by connection pooling (PgBouncer). Beyond that: S3 for file storage instead of a shared volume, Prometheus/OpenTelemetry for observability, and a dead-letter queue in RabbitMQ for permanently-failed tasks that need manual inspection.
-
----
-
-## Future Work
-
-- **Idempotent duplicate processing prevention.** Currently, if a worker crashes and its message is requeued, the new worker does not use a conditional `UPDATE ... WHERE status = 'NOT_STARTED'` guard before claiming the task. Adding this would make replay fully idempotent and prevent any possibility of double-processing under redelivery.
+- **Duplicate processing prevention.** Currently, if a worker crashes and its message is requeued, the new worker does not use a conditional `UPDATE ... WHERE status = 'NOT_STARTED'` guard before claiming the task. Adding this would make replay fully idempotent and prevent any possibility of double-processing under redelivery.
 - **Server-Sent Events (SSE) or WebSockets for status updates.** The dashboard currently polls `GET /api/tasks/{task_id}` every 2 seconds. Replacing this with an SSE stream or WebSocket connection would eliminate redundant requests, reduce server load, and deliver status transitions to the browser instantly.
-- **Stale task recovery via Celery Beat.** A periodic sweep that resets tasks stuck in `IN_PROGRESS` beyond a timeout threshold back to `NOT_STARTED` for redelivery, with an attempt counter to permanently fail tasks that exceed a retry limit.
 - **Dead-letter queue.** A dedicated DLQ in RabbitMQ for permanently-failed tasks, enabling manual inspection and selective replay.
