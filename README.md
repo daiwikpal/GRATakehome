@@ -21,7 +21,7 @@ cd GRATakehome
 
 The project uses two `.env` files with different roles:
 
-**Root `.env`** (read by Docker Compose to interpolate variables in `docker-compose.yml` — controls the `db`, `rabbitmq`, and `pgadmin` containers):
+**Root `.env`** (read by Docker Compose to interpolate variables in `docker-compose.yml`):
 
 ```env
 POSTGRES_USER=gra
@@ -50,7 +50,7 @@ RABBITMQ_USER=gra
 RABBITMQ_PASSWORD=gra_rabbit
 ```
 
-The credentials in both files must match. `POSTGRES_HOST=db` and `RABBITMQ_HOST=rabbitmq` in `backend/.env` refer to the Docker Compose service names — keep these as-is for local development.
+The credentials in both files must match. `POSTGRES_HOST=db` and `RABBITMQ_HOST=rabbitmq` in `backend/.env` refer to the Docker Compose service names. 
 
 ### 3. Start all services
 
@@ -58,7 +58,7 @@ The credentials in both files must match. `POSTGRES_HOST=db` and `RABBITMQ_HOST=
 docker compose up --build
 ```
 
-This brings up six containers: **PostgreSQL**, **RabbitMQ**, **pgAdmin**, the **FastAPI** API server, two **Celery workers**, and an **Nginx**-served frontend. All service dependencies use healthchecks, so the API and workers won't start until Postgres and RabbitMQ are ready.
+This brings up six containers: **PostgreSQL**, **RabbitMQ**, **pgAdmin**, the **FastAPI** API server, two **Celery workers**, and an **Nginx**-served frontend. All service dependencies use healthchecks, so the API and workers won't start until Postgres and RabbitMQ are ready. The `api` container automatically runs `alembic upgrade head` before starting, so the database schema is always up to date on a fresh Postgres DB.
 
 ### 4. Access the application
 
@@ -78,7 +78,7 @@ curl -X POST http://localhost:8000/api/tasks \
   -F "file=@frontend/sample_dataset.json"
 ```
 
-The response returns a `task_id` with status `NOT_STARTED`. Poll `GET /api/tasks/{task_id}` or watch the dashboard — the task will move through `IN_PROGRESS` → `COMPLETED` in ~15 seconds.
+The response returns a `task_id` with status `NOT_STARTED`. Poll `GET /api/tasks/{task_id}` or watch the dashboard to see the task move through `IN_PROGRESS` → `COMPLETED` in ~15 seconds.
 
 ### 6. Running tests
 
@@ -89,9 +89,9 @@ docker compose exec api pytest tests/ -v
 ```
 
 - **`test_processor.py`** — Unit tests for the pure `compute_summary` function: happy path, all-invalid records, empty records, missing fields, non-numeric values, bad timestamps, and mixed valid/invalid datasets.
-- **`test_upload.py`** — API integration tests for `POST /api/tasks`: valid uploads, sequential multi-upload with distinct task IDs, invalid JSON, missing `dataset_id`, missing `records`, empty files, non-JSON content, and no file attached.
+- **`test_upload.py`** — API tests for `POST /api/tasks`: valid uploads, sequential multi-upload with distinct task IDs, invalid JSON, missing `dataset_id`, missing `records`, empty files, non-JSON content, and no file attached.
 
-Celery is mocked during tests so no broker is needed; the DB session rolls back after each test for isolation.
+Celery is mocked during tests so no broker is needed. 
 
 ---
 
@@ -137,8 +137,6 @@ A request flows like this:
 | **Docker Compose** | One-command startup (`docker compose up`) with healthcheck-gated dependencies. Isomorphic with ECS task definitions in production. |
 
 ### Alternatives Considered
-
-**FastAPI over Flask/Django.** Flask and Django are mature but neither offers native async or automatic OpenAPI generation without plugins. FastAPI's Pydantic-first design means validation and serialization are the same code, which eliminates an entire class of bugs.
 
 **RabbitMQ over Redis as the broker.** Redis works as a Celery broker and is simpler to run. However, RabbitMQ is purpose-built for message brokering (AMQP protocol) rather than a list data structure repurposed as a queue. Message durability is stronger out of the box — RabbitMQ persists messages to disk by default, while Redis requires explicit AOF configuration with weaker guarantees on abrupt termination. The RabbitMQ management UI (port 15672) also makes queue behavior visible during demos.
 
